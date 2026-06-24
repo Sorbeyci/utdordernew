@@ -20,6 +20,7 @@ export type LegacyFormat = "structured" | "freeform" | "empty";
 type TS = Timestamp | string | null;
 
 export interface AppUser {
+  id: string;
   uid: string;
   email: string;
   displayName: string;

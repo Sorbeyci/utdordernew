@@ -103,7 +103,7 @@ export async function createOrder(
       archivedAt: null,
       createdBy: user.email,
       updatedBy: user.email,
-    });
+    } as never);
     return next;
   });
 

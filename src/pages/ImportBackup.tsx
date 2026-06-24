@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { Upload, Download, FileJson, FileSpreadsheet, AlertTriangle, CheckCircle2 } from "lucide-react";
+import { Upload, FileJson, FileSpreadsheet, AlertTriangle, CheckCircle2 } from "lucide-react";
 import toast from "react-hot-toast";
 import {
   buildPreview,
@@ -172,7 +172,7 @@ export function ImportBackup() {
                 </thead>
                 <tbody>
                   {head.map((r, i) => (
-                    <tr key={i} className={cn("border-t border-ink-50", r.issues.length && "bg-red-50/40")}>
+                    <tr key={i} className={cn("border-t border-ink-50", r.issues.length > 0 && "bg-red-50/40")}>
                       <td className="px-2 py-1.5 font-mono text-ink-400">{i + 1}</td>
                       {TARGET_FIELDS[type].slice(0, 5).map((t) => (
                         <td key={t} className="max-w-[160px] truncate px-2 py-1.5 text-ink-700">
@@ -180,7 +180,7 @@ export function ImportBackup() {
                         </td>
                       ))}
                       <td className="px-2 py-1.5">
-                        {r.issues.length ? (
+                        {r.issues.length > 0 ? (
                           <Badge tone="red">{r.issues.join(", ")}</Badge>
                         ) : r.duplicate === "existing" ? (
                           <Badge tone="amber">exists</Badge>

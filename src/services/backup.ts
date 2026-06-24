@@ -1,4 +1,5 @@
 import {
+  collection,
   getDocs,
   query,
   orderBy,
@@ -7,13 +8,13 @@ import {
   type QueryDocumentSnapshot,
   type DocumentData,
 } from "firebase/firestore";
-import { customersCol, productsCol, ordersCol } from "./firestore";
+import { db } from "@/firebase/config";
 import { downloadJSON, downloadCSV, stamp } from "@/utils/csv";
 
 type Col = "customers" | "products" | "orders";
 
 function colRef(c: Col) {
-  return c === "customers" ? customersCol : c === "products" ? productsCol : ordersCol;
+  return collection(db, c); // untyped — backup just needs raw documents
 }
 function sortField(c: Col) {
   return c === "orders" ? "orderNumber" : "normalizedName";

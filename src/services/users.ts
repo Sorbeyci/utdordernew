@@ -32,7 +32,7 @@ export async function ensureUserProfile(user: User): Promise<AppUser> {
       createdAt: serverTimestamp() as never,
       lastLoginAt: serverTimestamp() as never,
     };
-    await setDoc(ref, profile);
+    await setDoc(ref, profile as never);
     return { id: user.uid, ...profile };
   }
 

@@ -169,4 +169,3 @@ migration-output/  converted JSON          ✓
   mobile cards), Order detail + print sheet, Edit Order with audit log. ✓
 - **Batch 4** — Customers, Products (inline edit), Reports (CSV export),
   Import/Backup (CSV/JSON upload with preview + dup detection), Admin Users.
-# utdnew

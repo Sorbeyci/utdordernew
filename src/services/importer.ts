@@ -1,14 +1,14 @@
-import { writeBatch, serverTimestamp, addDoc, getDoc, Timestamp } from "firebase/firestore";
-import { db } from "@/firebase/config";
 import {
-  customersCol,
-  productsCol,
-  ordersCol,
-  customerRef,
-  productRef,
-  orderRef,
-  importLogsCol,
-} from "./firestore";
+  writeBatch,
+  serverTimestamp,
+  addDoc,
+  getDoc,
+  doc,
+  collection,
+  Timestamp,
+} from "firebase/firestore";
+import { db } from "@/firebase/config";
+import { orderRef, importLogsCol } from "./firestore";
 import { invalidateCatalog, loadCustomers, loadProducts } from "./catalog";
 import { normalizeName, normalizeUpc, parsePrice } from "@/utils/normalize";
 
@@ -230,10 +230,7 @@ export async function commitImport(
     errors = 0;
   const errorMsgs: string[] = [];
 
-  const refFor =
-    type === "customers" ? customerRef : type === "products" ? productRef : orderRef;
-  const colFor =
-    type === "customers" ? customersCol : type === "products" ? productsCol : ordersCol;
+  const collName: string = type; // "customers" | "products" | "orders"
 
   const writable: ParsedRow[] = [];
   for (const r of rows) {
@@ -254,6 +251,7 @@ export async function commitImport(
   }
 
   // Deterministic-id rows are written via batched setDoc; id-less rows via addDoc.
+  // Untyped refs avoid converter write-type friction — payloads are plain objects.
   const CHUNK = 400;
   for (let i = 0; i < writable.length; i += CHUNK) {
     const slice = writable.slice(i, i + CHUNK);
@@ -261,13 +259,13 @@ export async function commitImport(
     const addLater: ParsedRow[] = [];
     for (const r of slice) {
       const data = buildDoc(type, r, opts.by);
-      if (r.docId) batch.set(refFor(r.docId), data as never, { merge: !opts.overwrite });
+      if (r.docId) batch.set(doc(db, collName, r.docId), data, { merge: !opts.overwrite });
       else addLater.push(r);
     }
     await batch.commit();
     imported += slice.length - addLater.length;
     for (const r of addLater) {
-      await addDoc(colFor, buildDoc(type, r, opts.by) as never);
+      await addDoc(collection(db, collName), buildDoc(type, r, opts.by));
       imported++;
     }
   }
