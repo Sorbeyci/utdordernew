@@ -241,7 +241,7 @@ function RankList({ items }: { items: { label: string; value: number; sub?: stri
       {items.map((it, i) => (
         <li key={i} className="flex items-center gap-3 py-1 text-sm">
           <span className="w-5 font-mono text-xs text-ink-400">{i + 1}</span>
-          <span className="flex-1 truncate text-ink-700">{it.label}</span>
+          <span className="min-w-0 flex-1 truncate text-ink-700">{it.label}</span>
           {it.sub && <span className="text-xs text-ink-400">{it.sub}</span>}
           <span className="font-mono tabular text-ink-500">{it.value.toLocaleString()}</span>
         </li>

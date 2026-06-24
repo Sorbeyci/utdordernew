@@ -125,7 +125,7 @@ export function Dashboard() {
                       className="flex items-center gap-3 rounded-lg px-2 py-1.5 hover:bg-ink-50"
                     >
                       <span className="w-5 font-mono text-xs text-ink-400">{i + 1}</span>
-                      <span className="flex-1 truncate text-sm text-ink-800">
+                      <span className="min-w-0 flex-1 truncate text-sm text-ink-800">
                         {c.customerName}
                       </span>
                       <span className="font-mono text-sm tabular text-ink-500">
@@ -158,7 +158,7 @@ export function Dashboard() {
                       <span className="font-mono text-sm tabular text-ink-500">
                         #{o.orderNumber}
                       </span>
-                      <span className="flex-1 truncate text-sm text-ink-800">
+                      <span className="min-w-0 flex-1 truncate text-sm text-ink-800">
                         {o.customerName}
                       </span>
                       <span className="hidden text-xs text-ink-400 sm:block">
