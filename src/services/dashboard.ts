@@ -33,49 +33,71 @@ export interface DashboardStats {
   ordersLast30d: number;
   topCustomers: Customer[];
   recentOrders: Order[];
+  /** Non-empty if one or more sub-queries failed (e.g. a missing index). */
+  errors: string[];
 }
 
-export async function getDashboardStats(): Promise<DashboardStats> {
-  // Counts run server-side — no large reads even with thousands of orders.
-  const [
-    totalCustomers,
-    activeCustomers,
-    totalProducts,
-    totalOrders,
-    openOrders,
-    closedOrders,
-    ordersLast24h,
-    ordersLast7d,
-    ordersLast30d,
-  ] = await Promise.all([
-    count(query(customersCol)),
-    count(query(customersCol, where("active", "==", true))),
-    count(query(productsCol)),
-    count(query(ordersCol)),
-    count(query(ordersCol, where("status", "==", "open"))),
-    count(query(ordersCol, where("status", "==", "closed"))),
-    count(query(ordersCol, where("createdAt", ">=", daysAgo(1)))),
-    count(query(ordersCol, where("createdAt", ">=", daysAgo(7)))),
-    count(query(ordersCol, where("createdAt", ">=", daysAgo(30)))),
-  ]);
+function msg(e: unknown): string {
+  return (e as { message?: string })?.message ?? String(e);
+}
 
-  const [topCustomers, recentOrders] = await Promise.all([
-    getMany<Customer>(customersCol, orderBy("orderCount", "desc"), limit(10)),
-    getMany<Order>(ordersCol, orderBy("createdAt", "desc"), limit(8)),
-  ]);
+/**
+ * Resilient: each query is isolated, so a single failure (e.g. an index still
+ * building) degrades that one number to 0 and is reported in `errors` rather
+ * than blanking the whole dashboard.
+ */
+export async function getDashboardStats(): Promise<DashboardStats> {
+  const errors: string[] = [];
+
+  const countTasks: Record<string, ReturnType<typeof query>> = {
+    totalCustomers: query(customersCol),
+    activeCustomers: query(customersCol, where("active", "==", true)),
+    totalProducts: query(productsCol),
+    totalOrders: query(ordersCol),
+    openOrders: query(ordersCol, where("status", "==", "open")),
+    closedOrders: query(ordersCol, where("status", "==", "closed")),
+    ordersLast24h: query(ordersCol, where("createdAt", ">=", daysAgo(1))),
+    ordersLast7d: query(ordersCol, where("createdAt", ">=", daysAgo(7))),
+    ordersLast30d: query(ordersCol, where("createdAt", ">=", daysAgo(30))),
+  };
+
+  const keys = Object.keys(countTasks);
+  const settled = await Promise.allSettled(keys.map((k) => count(countTasks[k])));
+  const n: Record<string, number> = {};
+  settled.forEach((r, i) => {
+    if (r.status === "fulfilled") n[keys[i]] = r.value;
+    else {
+      n[keys[i]] = 0;
+      errors.push(msg(r.reason));
+    }
+  });
+
+  let topCustomers: Customer[] = [];
+  let recentOrders: Order[] = [];
+  try {
+    topCustomers = await getMany<Customer>(customersCol, orderBy("orderCount", "desc"), limit(10));
+  } catch (e) {
+    errors.push(msg(e));
+  }
+  try {
+    recentOrders = await getMany<Order>(ordersCol, orderBy("createdAt", "desc"), limit(8));
+  } catch (e) {
+    errors.push(msg(e));
+  }
 
   return {
-    totalCustomers,
-    activeCustomers,
-    inactiveCustomers: totalCustomers - activeCustomers,
-    totalProducts,
-    totalOrders,
-    openOrders,
-    closedOrders,
-    ordersLast24h,
-    ordersLast7d,
-    ordersLast30d,
+    totalCustomers: n.totalCustomers,
+    activeCustomers: n.activeCustomers,
+    inactiveCustomers: Math.max(0, n.totalCustomers - n.activeCustomers),
+    totalProducts: n.totalProducts,
+    totalOrders: n.totalOrders,
+    openOrders: n.openOrders,
+    closedOrders: n.closedOrders,
+    ordersLast24h: n.ordersLast24h,
+    ordersLast7d: n.ordersLast7d,
+    ordersLast30d: n.ordersLast30d,
     topCustomers,
     recentOrders,
+    errors: [...new Set(errors)],
   };
 }
