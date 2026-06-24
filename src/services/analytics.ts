@@ -41,6 +41,7 @@ export interface ProductAnalytics {
   freeformAllTime: FreeformProduct[]; // best sellers, all time
   freeformRecent: FreeformProduct[]; // selling now (recent window)
   freeformTrending: FreeformProduct[]; // gaining momentum
+  byUser: { user: string; count: number }[];
 }
 
 const RECENT_DAYS = 30;
@@ -77,6 +78,7 @@ export async function getProductAnalytics(
 
   const structured = new Map<string, { units: number; orders: number }>();
   const free = new Map<string, FreeformProduct>();
+  const users = new Map<string, number>();
   let scanned = 0,
     structuredOrders = 0,
     freeformOrders = 0,
@@ -93,6 +95,8 @@ export async function getProductAnalytics(
     for (const d of snap.docs) {
       const o = d.data();
       scanned++;
+      const by = o.createdBy || "—";
+      users.set(by, (users.get(by) || 0) + 1);
       const createdMs = toDate(o.createdAt)?.getTime() ?? 0;
       const isRecent = createdMs >= cutoffMs;
       const items = o.items ?? [];
@@ -167,5 +171,8 @@ export async function getProductAnalytics(
       .sort((a, b) => b.recentUnits - a.recentUnits)
       .slice(0, 20),
     freeformTrending: trending,
+    byUser: [...users.entries()]
+      .map(([user, count]) => ({ user, count }))
+      .sort((a, b) => b.count - a.count),
   };
 }

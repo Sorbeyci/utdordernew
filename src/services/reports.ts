@@ -7,10 +7,8 @@ import {
   Timestamp,
 } from "firebase/firestore";
 import { ordersCol, customersCol, getMany } from "./firestore";
-import type { Customer, Order, Importance } from "@/types";
+import type { Customer, Importance } from "@/types";
 import { IMPORTANCE_LABELS } from "@/types";
-
-const SCAN_LIMIT = 1000; // recent orders scanned for item/user tallies
 
 function daysAgo(n: number): Timestamp {
   const d = new Date();
@@ -26,28 +24,20 @@ export interface ReportData {
   customerStatus: { active: number; inactive: number };
   orderStatus: { open: number; closed: number; archived: number; nonArchived: number };
   topCustomers: { name: string; count: number }[];
-  topProducts: { name: string; qty: number }[];
   byImportance: { importance: Importance; label: string; count: number }[];
-  byUser: { user: string; count: number }[];
-  scanned: number;
 }
 
+/**
+ * Cheap by design: only server-side count() aggregations plus the stored
+ * orderCount for top customers. No full-collection scans here — the heavy
+ * per-product / per-user tallies live behind the on-demand analytics button.
+ */
 export async function getReport(): Promise<ReportData> {
   const [
-    f24,
-    f7,
-    f14,
-    f30,
-    active,
-    totalCustomers,
-    open,
-    closed,
-    archived,
-    nonArchived,
-    impTomorrow,
-    impWeek,
-    impUrgent,
-    impHold,
+    f24, f7, f14, f30,
+    active, totalCustomers,
+    open, closed, archived, nonArchived,
+    impTomorrow, impWeek, impUrgent, impHold,
   ] = await Promise.all([
     count(query(ordersCol, where("createdAt", ">=", daysAgo(1)))),
     count(query(ordersCol, where("createdAt", ">=", daysAgo(7)))),
@@ -71,28 +61,6 @@ export async function getReport(): Promise<ReportData> {
     limit(10)
   );
 
-  // One bounded read of recent orders for item/user tallies (mostly meaningful
-  // for structured orders; legacy freeform orders carry no parsed items).
-  const recent = await getMany<Order>(ordersCol, orderBy("createdAt", "desc"), limit(SCAN_LIMIT));
-  const productQty = new Map<string, number>();
-  const userCount = new Map<string, number>();
-  for (const o of recent) {
-    userCount.set(o.createdBy || "—", (userCount.get(o.createdBy || "—") || 0) + 1);
-    for (const it of o.items || []) {
-      const key = it.productName.trim();
-      if (key) productQty.set(key, (productQty.get(key) || 0) + (it.quantity || 0));
-    }
-  }
-
-  const topProducts = [...productQty.entries()]
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 10)
-    .map(([name, qty]) => ({ name, qty }));
-
-  const byUser = [...userCount.entries()]
-    .sort((a, b) => b[1] - a[1])
-    .map(([user, c]) => ({ user, count: c }));
-
   return {
     frequency: [
       { period: "Last 24 hours", count: f24 },
@@ -103,14 +71,11 @@ export async function getReport(): Promise<ReportData> {
     customerStatus: { active, inactive: totalCustomers - active },
     orderStatus: { open, closed, archived, nonArchived },
     topCustomers: topCustomersRaw.map((c) => ({ name: c.customerName, count: c.orderCount })),
-    topProducts,
     byImportance: [
       { importance: "urgent", label: IMPORTANCE_LABELS.urgent, count: impUrgent },
       { importance: "tomorrow", label: IMPORTANCE_LABELS.tomorrow, count: impTomorrow },
       { importance: "anytime_this_week", label: IMPORTANCE_LABELS.anytime_this_week, count: impWeek },
       { importance: "hold", label: IMPORTANCE_LABELS.hold, count: impHold },
     ],
-    byUser,
-    scanned: recent.length,
   };
 }

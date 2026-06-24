@@ -48,8 +48,31 @@ export function Dashboard() {
   const [hardError, setHardError] = useState<string | null>(null);
 
   useEffect(() => {
+    const CACHE = "utd_dashboard_v1";
+    const TTL = 3 * 60 * 1000; // 3 minutes
+    try {
+      const raw = localStorage.getItem(CACHE);
+      if (raw) {
+        const { at, data } = JSON.parse(raw);
+        if (Date.now() - at < TTL) {
+          setStats(data);
+          return; // fresh enough — skip the count queries entirely
+        }
+      }
+    } catch {
+      /* ignore */
+    }
     getDashboardStats()
-      .then(setStats)
+      .then((s) => {
+        setStats(s);
+        if (s.errors.length === 0) {
+          try {
+            localStorage.setItem(CACHE, JSON.stringify({ at: Date.now(), data: s }));
+          } catch {
+            /* ignore */
+          }
+        }
+      })
       .catch((e) => setHardError((e as { message?: string })?.message ?? String(e)));
   }, []);
 

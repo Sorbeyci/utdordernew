@@ -5,23 +5,62 @@ import { normalizeName, normalizeUpc } from "@/utils/normalize";
 import type { Customer, Product } from "@/types";
 
 /**
- * Customers (379) and products (1,013) are small, so we load them once and keep
- * them in memory. That makes customer search, product search, and barcode/UPC
- * lookup instant — no round-trip per keystroke or scan.
+ * Customers (379) and products (1,013) change rarely, so we cache them in the
+ * browser (localStorage) with a TTL. This avoids re-reading ~1,400 documents on
+ * every page load — a major Firestore-read saver. The cache is cleared whenever a
+ * customer/product is created or edited (invalidateCatalog), so data stays fresh.
  */
+const TTL_MS = 6 * 60 * 60 * 1000; // 6 hours
+const VERSION = "v1";
+const key = (name: string) => `utd_catalog_${VERSION}_${name}`;
+
 let customersPromise: Promise<Customer[]> | null = null;
 let productsPromise: Promise<Product[]> | null = null;
 
+function readCache<T>(name: string): T[] | null {
+  try {
+    const raw = localStorage.getItem(key(name));
+    if (!raw) return null;
+    const { at, data } = JSON.parse(raw) as { at: number; data: T[] };
+    if (Date.now() - at > TTL_MS) return null;
+    return data;
+  } catch {
+    return null;
+  }
+}
+
+function writeCache(name: string, data: unknown) {
+  try {
+    localStorage.setItem(key(name), JSON.stringify({ at: Date.now(), data }));
+  } catch {
+    /* storage full or unavailable — fine, we just skip caching */
+  }
+}
+
 export function loadCustomers(force = false): Promise<Customer[]> {
-  if (force || !customersPromise) {
-    customersPromise = getMany<Customer>(customersCol, orderBy("normalizedName"));
+  if (force) customersPromise = null;
+  if (!customersPromise) {
+    const cached = force ? null : readCache<Customer>("customers");
+    customersPromise = cached
+      ? Promise.resolve(cached)
+      : getMany<Customer>(customersCol, orderBy("normalizedName")).then((d) => {
+          writeCache("customers", d);
+          return d;
+        });
   }
   return customersPromise;
 }
 
 export function loadProducts(force = false): Promise<Product[]> {
-  if (force || !productsPromise) {
-    productsPromise = getMany<Product>(productsCol, orderBy("normalizedName"));
+  if (force) productsPromise = null;
+  if (!productsPromise) {
+    const cached = force ? null : readCache<Product>("products");
+    productsPromise = cached
+      ? Promise.resolve(cached)
+      : getMany<Product>(productsCol, orderBy("normalizedName")).then((d) => {
+          writeCache("products", d);
+          return d;
+        });
   }
   return productsPromise;
 }
@@ -29,6 +68,12 @@ export function loadProducts(force = false): Promise<Product[]> {
 export function invalidateCatalog() {
   customersPromise = null;
   productsPromise = null;
+  try {
+    localStorage.removeItem(key("customers"));
+    localStorage.removeItem(key("products"));
+  } catch {
+    /* ignore */
+  }
 }
 
 export async function getCustomer(id: string): Promise<Customer | null> {
