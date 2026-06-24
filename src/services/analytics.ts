@@ -4,6 +4,8 @@ import {
   orderBy,
   limit,
   startAfter,
+  type QueryConstraint,
+  type QuerySnapshot,
   type QueryDocumentSnapshot,
 } from "firebase/firestore";
 import { ordersCol } from "./firestore";
@@ -49,12 +51,12 @@ export async function getProductAnalytics(
     totalUnits = 0;
 
   for (;;) {
-    const constraints = [
+    const constraints: QueryConstraint[] = [
       orderBy("orderNumber"),
       ...(cursor ? [startAfter(cursor)] : []),
       limit(PAGE),
     ];
-    const snap = await getDocs(query(ordersCol, ...constraints));
+    const snap: QuerySnapshot<Order> = await getDocs(query(ordersCol, ...constraints));
 
     for (const d of snap.docs) {
       const o = d.data();

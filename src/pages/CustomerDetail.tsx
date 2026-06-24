@@ -24,6 +24,7 @@ export function CustomerDetail() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
   const [ordersError, setOrdersError] = useState(false);
+  const [indexLink, setIndexLink] = useState<string | null>(null);
 
   useEffect(() => {
     let on = true;
@@ -43,7 +44,12 @@ export function CustomerDetail() {
         if (on) setOrders(list);
       } catch (e) {
         console.error(e);
-        if (on) setOrdersError(true);
+        if (!on) return;
+        setOrdersError(true);
+        // Firestore puts a one-click index-creation URL in the error message.
+        const msg = (e as { message?: string }).message ?? "";
+        const m = msg.match(/https:\/\/console\.firebase\.google\.com\S+/);
+        if (m) setIndexLink(m[0]);
       }
     })();
     return () => {
@@ -107,8 +113,20 @@ export function CustomerDetail() {
 
       {ordersError ? (
         <EmptyState
-          title="Couldn't load order history"
-          message="The customerId + createdAt index may still be building. Deploy indexes or wait a minute, then refresh."
+          title="Order history needs a Firestore index"
+          message="Your old orders are safe — this query just needs a one-time index (customerId + createdAt). Create it below, wait ~1–2 minutes for it to build, then refresh."
+          action={
+            indexLink ? (
+              <a
+                href={indexLink}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 rounded-lg bg-brand-600 px-3 py-2 text-sm font-medium text-white hover:bg-brand-700"
+              >
+                Create index in Firebase ↗
+              </a>
+            ) : undefined
+          }
         />
       ) : orders.length === 0 ? (
         <EmptyState title="No orders yet" message="Create the first order for this customer." />
