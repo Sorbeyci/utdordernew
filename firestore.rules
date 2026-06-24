@@ -1,0 +1,82 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ---- helpers ----
+    function signedIn() {
+      return request.auth != null;
+    }
+    function userDoc() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+    function role() {
+      return signedIn() && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        ? userDoc().role : "none";
+    }
+    function isActive() {
+      return signedIn() && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        && userDoc().active == true;
+    }
+    function isAdmin()   { return isActive() && role() == "admin"; }
+    function isManager() { return isActive() && (role() == "admin" || role() == "manager"); }
+    // worker and above can create/edit orders
+    function canWrite()  { return isActive() && role() in ["admin", "manager", "worker"]; }
+    function canRead()   { return isActive(); } // viewer included
+
+    // ---- users ----
+    // Anyone signed in may create their OWN bootstrap profile (pending approval).
+    // Only admins may change roles / activate / disable accounts.
+    match /users/{uid} {
+      allow read: if signedIn() && (request.auth.uid == uid || isManager());
+      allow create: if signedIn() && request.auth.uid == uid;
+      allow update: if isAdmin()
+        || (request.auth.uid == uid
+            // a user may update only their own benign fields, never role/active
+            && request.resource.data.role == resource.data.role
+            && request.resource.data.active == resource.data.active);
+      allow delete: if isAdmin();
+    }
+
+    // ---- customers ----
+    match /customers/{id} {
+      allow read: if canRead();
+      allow create, update: if isManager(); // workers don't manage customers
+      allow delete: if isAdmin();           // prefer soft-delete (active=false) in app
+    }
+
+    // ---- products ----
+    match /products/{id} {
+      allow read: if canRead();
+      allow create, update: if isManager();
+      allow delete: if isAdmin();
+    }
+
+    // ---- orders ----
+    match /orders/{id} {
+      allow read: if canRead();
+      allow create, update: if canWrite(); // workers may create/edit orders
+      allow delete: if isAdmin();           // workers cannot delete; archive instead
+    }
+
+    // ---- order history (audit log) — append-only ----
+    match /orderHistory/{id} {
+      allow read: if canRead();
+      allow create: if canWrite();
+      allow update, delete: if false;
+    }
+
+    // ---- import logs ----
+    match /importLogs/{id} {
+      allow read: if isManager();
+      allow create: if isManager();
+      allow update, delete: if false;
+    }
+
+    // ---- counters (sequential order numbers) ----
+    match /counters/{id} {
+      allow read: if canRead();
+      allow write: if canWrite(); // updated transactionally when creating orders
+    }
+  }
+}

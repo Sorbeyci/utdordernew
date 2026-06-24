@@ -1,0 +1,33 @@
+{
+  "ranAt": "2026-06-23T23:32:27.347743",
+  "source": "database.db (SQLite)",
+  "customers": {
+    "total": 379,
+    "duplicateNames": 0
+  },
+  "products": {
+    "total": 1013,
+    "duplicateUpcCount": 10,
+    "priceParseFailures": 0
+  },
+  "orders": {
+    "total": 7935,
+    "structured": 103,
+    "freeform": 7830,
+    "empty": 2,
+    "orphans": 0,
+    "dateParseFailures": 0
+  },
+  "nextOrderNumber": 8014,
+  "counterDoc": {
+    "collection": "counters",
+    "id": "orders",
+    "current": 8013
+  },
+  "notes": [
+    "Order raw text preserved verbatim in legacyOutputText.",
+    "items[] populated only for structured orders; freeform render raw text.",
+    "Legacy 'users' table NOT migrated (plaintext passwords; app is Google-only).",
+    "legacyTotalsText kept for reference only — known unreliable in source data."
+  ]
+}

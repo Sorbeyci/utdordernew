@@ -1,0 +1,64 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  @apply bg-ink-50 text-ink-900 antialiased;
+  font-feature-settings: "cv11", "ss01";
+}
+
+/* Tabular figures for any data the eye scans: order #, UPC, quantities */
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- Status system: rows + badges share one source of truth ---- */
+.status-open {
+  @apply bg-red-50;
+}
+.status-urgent {
+  @apply bg-red-50;
+}
+.status-closed {
+  @apply bg-emerald-50;
+}
+.status-archived {
+  @apply bg-ink-100;
+}
+.status-tomorrow {
+  @apply bg-amber-50;
+}
+
+/* ---- Print: only the order sheet survives, nothing chrome ---- */
+@media print {
+  .no-print {
+    display: none !important;
+  }
+  .print-sheet {
+    box-shadow: none !important;
+    border: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+  body {
+    background: #fff !important;
+  }
+}
+
+/* Respect reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
