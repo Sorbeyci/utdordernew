@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { serverTimestamp, type QueryDocumentSnapshot, type DocumentData } from "firebase/firestore";
 import { Printer, CheckSquare, Archive, X, Plus } from "lucide-react";
 import toast from "react-hot-toast";
@@ -30,6 +30,9 @@ import type { Order } from "@/types";
 
 const FILTERS: { key: OrderFilter; label: string }[] = [
   { key: "all", label: "All" },
+  { key: "last_24h", label: "24h" },
+  { key: "last_7d", label: "7 days" },
+  { key: "last_30d", label: "30 days" },
   { key: "open", label: "Open" },
   { key: "closed", label: "Closed" },
   { key: "archived", label: "Archived" },
@@ -43,10 +46,16 @@ const FILTERS: { key: OrderFilter; label: string }[] = [
 type Cursor = QueryDocumentSnapshot<DocumentData> | null;
 type BulkAction = "printed" | "close" | "archive" | null;
 
+const FILTER_KEYS: OrderFilter[] = FILTERS.map((f) => f.key);
+
 export function Orders() {
   const { user, profile, hasRole } = useAuth();
   const navigate = useNavigate();
-  const [filter, setFilter] = useState<OrderFilter>("all");
+  const [params] = useSearchParams();
+  const urlFilter = params.get("filter") as OrderFilter | null;
+  const initialFilter: OrderFilter =
+    urlFilter && FILTER_KEYS.includes(urlFilter) ? urlFilter : "all";
+  const [filter, setFilter] = useState<OrderFilter>(initialFilter);
   const [orders, setOrders] = useState<Order[]>([]);
   const [cursor, setCursor] = useState<Cursor>(null);
   const [loading, setLoading] = useState(true);
@@ -55,17 +64,24 @@ export function Orders() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulk, setBulk] = useState<BulkAction>(null);
   const [bulkBusy, setBulkBusy] = useState(false);
+  const [indexLink, setIndexLink] = useState<string | null>(null);
 
   const load = useCallback(async (f: OrderFilter) => {
     setLoading(true);
     setSelected(new Set());
+    setIndexLink(null);
     try {
       const { orders: o, last } = await listOrders(f);
       setOrders(o);
       setCursor(last);
     } catch (e) {
       console.error(e);
-      toast.error("Couldn't load orders. A Firestore index may still be building.");
+      // Firestore returns a one-click index-creation URL in the error message.
+      const msg = (e as { message?: string }).message ?? "";
+      const m = msg.match(/https:\/\/console\.firebase\.google\.com\S+/);
+      setIndexLink(m ? m[0] : null);
+      setOrders([]);
+      if (!m) toast.error("Couldn't load orders. Check your connection and indexes.");
     } finally {
       setLoading(false);
     }
@@ -216,6 +232,21 @@ export function Orders() {
 
       {loading ? (
         <PageLoader label="Loading orders…" />
+      ) : indexLink ? (
+        <EmptyState
+          title="This filter needs a Firestore index"
+          message="Firestore needs a one-time index for this query. Click below to create it (takes ~1–2 minutes to build), then come back."
+          action={
+            <a
+              href={indexLink}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 rounded-lg bg-brand-600 px-3 py-2 text-sm font-medium text-white hover:bg-brand-700"
+            >
+              Create index in Firebase ↗
+            </a>
+          }
+        />
       ) : visible.length === 0 ? (
         <EmptyState
           title="No orders here"

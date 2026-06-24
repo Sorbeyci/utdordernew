@@ -80,30 +80,34 @@ export function Dashboard() {
       ) : (
         <>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-            <StatCard label="Customers" value={stats.totalCustomers.toLocaleString()} />
-            <StatCard label="Products" value={stats.totalProducts.toLocaleString()} />
-            <StatCard label="Total orders" value={stats.totalOrders.toLocaleString()} />
+            <StatCard label="Customers" value={stats.totalCustomers.toLocaleString()} to="/customers" />
+            <StatCard label="Products" value={stats.totalProducts.toLocaleString()} to="/products" />
+            <StatCard label="Total orders" value={stats.totalOrders.toLocaleString()} to="/orders" />
             <StatCard
               label="Open orders"
               value={stats.openOrders.toLocaleString()}
               accent="text-red-600"
+              to="/orders?filter=open"
             />
             <StatCard
               label="Closed orders"
               value={stats.closedOrders.toLocaleString()}
               accent="text-emerald-600"
+              to="/orders?filter=closed"
             />
-            <StatCard label="Last 24 hours" value={stats.ordersLast24h.toLocaleString()} />
-            <StatCard label="Last 7 days" value={stats.ordersLast7d.toLocaleString()} />
-            <StatCard label="Last 30 days" value={stats.ordersLast30d.toLocaleString()} />
+            <StatCard label="Last 24 hours" value={stats.ordersLast24h.toLocaleString()} to="/orders?filter=last_24h" />
+            <StatCard label="Last 7 days" value={stats.ordersLast7d.toLocaleString()} to="/orders?filter=last_7d" />
+            <StatCard label="Last 30 days" value={stats.ordersLast30d.toLocaleString()} to="/orders?filter=last_30d" />
             <StatCard
               label="Active customers"
               value={stats.activeCustomers.toLocaleString()}
+              to="/customers"
             />
             <StatCard
               label="Inactive customers"
               value={stats.inactiveCustomers.toLocaleString()}
               accent="text-ink-400"
+              to="/customers"
             />
           </div>
 

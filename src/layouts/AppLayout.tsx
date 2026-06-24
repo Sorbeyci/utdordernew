@@ -58,7 +58,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
             <NavLink
               key={to}
               to={to}
-              end={to === "/"}
+              end={to === "/" || to === "/orders"}
               className={({ isActive }) =>
                 cn(
                   "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition",
@@ -129,7 +129,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
           <NavLink
             key={to}
             to={to}
-            end={to === "/"}
+            end={to === "/" || to === "/orders"}
             className={({ isActive }) =>
               cn(
                 "flex flex-1 flex-col items-center gap-0.5 py-2 text-[11px] font-medium",

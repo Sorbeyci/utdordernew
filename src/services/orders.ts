@@ -13,6 +13,7 @@ import {
   orderBy,
   limit,
   startAfter,
+  Timestamp,
   type QueryConstraint,
   type QueryDocumentSnapshot,
   type DocumentData,
@@ -236,7 +237,16 @@ export type OrderFilter =
   | "not_printed"
   | "tomorrow"
   | "anytime_this_week"
-  | "urgent";
+  | "urgent"
+  | "last_24h"
+  | "last_7d"
+  | "last_30d";
+
+function daysAgoTs(n: number): Timestamp {
+  const d = new Date();
+  d.setDate(d.getDate() - n);
+  return Timestamp.fromDate(d);
+}
 
 function filterConstraints(f: OrderFilter): QueryConstraint[] {
   switch (f) {
@@ -256,6 +266,12 @@ function filterConstraints(f: OrderFilter): QueryConstraint[] {
       return [where("importance", "==", "anytime_this_week" as Importance)];
     case "urgent":
       return [where("importance", "==", "urgent" as Importance)];
+    case "last_24h":
+      return [where("createdAt", ">=", daysAgoTs(1))];
+    case "last_7d":
+      return [where("createdAt", ">=", daysAgoTs(7))];
+    case "last_30d":
+      return [where("createdAt", ">=", daysAgoTs(30))];
     default:
       return [];
   }

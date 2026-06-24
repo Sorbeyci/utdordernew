@@ -23,14 +23,32 @@ export function CustomerDetail() {
   const [customer, setCustomer] = useState<Customer | null>(null);
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
+  const [ordersError, setOrdersError] = useState(false);
 
   useEffect(() => {
+    let on = true;
     (async () => {
-      const c = await getCustomer(id);
-      setCustomer(c);
-      if (c) setOrders(await listOrdersByCustomer(c.id));
-      setLoading(false);
+      try {
+        const c = await getCustomer(id);
+        if (on) setCustomer(c);
+      } catch (e) {
+        console.error(e);
+      } finally {
+        // Always clear the page loader, even if the customer fetch failed.
+        if (on) setLoading(false);
+      }
+      // Load order history separately so an index error here doesn't hang the page.
+      try {
+        const list = await listOrdersByCustomer(id);
+        if (on) setOrders(list);
+      } catch (e) {
+        console.error(e);
+        if (on) setOrdersError(true);
+      }
     })();
+    return () => {
+      on = false;
+    };
   }, [id]);
 
   if (loading) return <PageLoader label="Loading customer…" />;
@@ -86,7 +104,13 @@ export function CustomerDetail() {
       <h2 className="text-sm font-semibold text-ink-700">
         Order history {orders.length >= 100 && <Badge>most recent 100</Badge>}
       </h2>
-      {orders.length === 0 ? (
+
+      {ordersError ? (
+        <EmptyState
+          title="Couldn't load order history"
+          message="The customerId + createdAt index may still be building. Deploy indexes or wait a minute, then refresh."
+        />
+      ) : orders.length === 0 ? (
         <EmptyState title="No orders yet" message="Create the first order for this customer." />
       ) : (
         <div className="space-y-2">
