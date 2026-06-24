@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
-import { Download, BarChart3, Loader2 } from "lucide-react";
+import { Download, BarChart3, Loader2, TrendingUp, Clock, Trophy } from "lucide-react";
 import { getReport, type ReportData } from "@/services/reports";
-import { getProductAnalytics, type ProductAnalytics } from "@/services/analytics";
+import { getProductAnalytics, type ProductAnalytics, type FreeformProduct } from "@/services/analytics";
 import { PageHeader, Card, StatCard, Button, PageLoader, EmptyState, Badge } from "@/components/ui";
 import { downloadCSV, stamp } from "@/utils/csv";
 
@@ -9,7 +9,6 @@ export function Reports() {
   const [data, setData] = useState<ReportData | null>(null);
   const [error, setError] = useState(false);
 
-  // Full product analytics — run on demand (scans every order).
   const [analytics, setAnalytics] = useState<ProductAnalytics | null>(null);
   const [running, setRunning] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -22,8 +21,7 @@ export function Reports() {
     setRunning(true);
     setProgress(0);
     try {
-      const a = await getProductAnalytics((n) => setProgress(n));
-      setAnalytics(a);
+      setAnalytics(await getProductAnalytics((n) => setProgress(n)));
     } catch (e) {
       console.error(e);
     } finally {
@@ -40,8 +38,6 @@ export function Reports() {
       { section: "Orders", label: "Open", value: data.orderStatus.open },
       { section: "Orders", label: "Closed", value: data.orderStatus.closed },
       { section: "Orders", label: "Archived", value: data.orderStatus.archived },
-      { section: "Orders", label: "Non-archived", value: data.orderStatus.nonArchived },
-      ...data.byImportance.map((i) => ({ section: "By importance", label: i.label, value: i.count })),
       ...data.topCustomers.map((c, i) => ({ section: "Top customers", label: `${i + 1}. ${c.name}`, value: c.count })),
       ...data.byUser.map((u) => ({ section: "By user", label: u.user, value: u.count })),
     ];
@@ -50,12 +46,16 @@ export function Reports() {
 
   function exportProductsCSV() {
     if (!analytics) return;
-    const rows = analytics.topByUnits.map((p) => ({
+    const rows = analytics.freeformAllTime.map((p) => ({
       product: p.name,
-      unitsSold: p.units,
-      orders: p.orders,
+      totalUnits: p.units,
+      timesOrdered: p.count,
+      recentUnits: p.recentUnits,
+      recentOrders: p.recentCount,
     }));
-    downloadCSV(`product-sales-${stamp()}.csv`, rows, ["product", "unitsSold", "orders"]);
+    downloadCSV(`product-sales-${stamp()}.csv`, rows, [
+      "product", "totalUnits", "timesOrdered", "recentUnits", "recentOrders",
+    ]);
   }
 
   if (error) return <EmptyState title="Couldn't load reports" message="Check Firestore rules and indexes." />;
@@ -65,7 +65,7 @@ export function Reports() {
     <div className="space-y-5">
       <PageHeader
         title="Reports"
-        subtitle="Order activity, customer and order status, and top performers."
+        subtitle="Order activity, customer and order status, and product demand."
         actions={
           <Button size="sm" variant="secondary" onClick={exportCSV}>
             <Download size={15} /> Export CSV
@@ -108,24 +108,22 @@ export function Reports() {
 
         <Card className="p-4">
           <h2 className="mb-3 text-sm font-semibold text-ink-700">Orders by user</h2>
-          <div>
-            {data.byUser.map((u) => (
-              <Row key={u.user} label={u.user} value={u.count} />
-            ))}
-          </div>
+          {data.byUser.map((u) => (
+            <Row key={u.user} label={u.user} value={u.count} />
+          ))}
         </Card>
       </div>
 
-      {/* ---- Full product analytics (on-demand scan) ---- */}
+      {/* ---- Product demand (on-demand full scan) ---- */}
       <Card className="p-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
             <h2 className="flex items-center gap-2 text-sm font-semibold text-ink-700">
-              <BarChart3 size={16} /> Product sales analytics
+              <BarChart3 size={16} /> Product demand
             </h2>
             <p className="mt-0.5 text-xs text-ink-400">
-              Scans every order. Accurate for structured orders; handwritten orders are mined
-              separately for demand terms.
+              Scans every order. Each handwritten line counts as one product (e.g. "black mamba"),
+              with its trailing quantity summed.
             </p>
           </div>
           <div className="flex gap-2">
@@ -148,75 +146,69 @@ export function Reports() {
         )}
 
         {analytics && !running && (
-          <div className="mt-4 space-y-4">
+          <div className="mt-4 space-y-5">
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
               <StatCard label="Orders scanned" value={analytics.scanned.toLocaleString()} />
-              <StatCard label="Units sold (structured)" value={analytics.totalUnits.toLocaleString()} />
-              <StatCard label="Distinct products" value={analytics.distinctProducts.toLocaleString()} />
-              <StatCard
-                label="Structured / handwritten"
-                value={`${analytics.structuredOrders} / ${analytics.freeformOrders}`}
-              />
+              <StatCard label="Handwritten orders" value={analytics.freeformOrders.toLocaleString()} />
+              <StatCard label="Distinct products" value={analytics.distinctFreeformProducts.toLocaleString()} />
+              <StatCard label="Last 30 days" value={`${analytics.freeformRecent.length} active`} />
             </div>
 
             <div className="grid gap-4 lg:grid-cols-2">
-              <div>
-                <h3 className="mb-2 text-sm font-semibold text-ink-700">
-                  Top products by units sold
-                </h3>
-                {analytics.topByUnits.length === 0 ? (
-                  <p className="text-sm text-ink-400">
-                    No structured items yet — builds up as new orders are created.
-                  </p>
-                ) : (
-                  <RankList
-                    items={analytics.topByUnits.map((p) => ({
-                      label: p.name,
-                      value: p.units,
-                      sub: `${p.orders} orders`,
-                    }))}
-                  />
-                )}
-              </div>
+              <Section icon={<Trophy size={15} className="text-amber-500" />} title="Best sellers — all time">
+                <ProductList
+                  items={analytics.freeformAllTime}
+                  value={(p) => p.units}
+                  sub={(p) => `${p.count} orders`}
+                  empty="No handwritten products found."
+                />
+              </Section>
 
-              <div>
-                <h3 className="mb-2 text-sm font-semibold text-ink-700">
-                  Top products by order count
-                </h3>
-                {analytics.topByOrders.length === 0 ? (
-                  <p className="text-sm text-ink-400">No structured items yet.</p>
-                ) : (
-                  <RankList
-                    items={analytics.topByOrders.map((p) => ({
-                      label: p.name,
-                      value: p.orders,
-                      sub: `${p.units} units`,
-                    }))}
-                  />
-                )}
-              </div>
+              <Section icon={<Clock size={15} className="text-brand-600" />} title={`Selling now — last ${analytics.recentWindowDays} days`}>
+                <ProductList
+                  items={analytics.freeformRecent}
+                  value={(p) => p.recentUnits}
+                  sub={(p) => `${p.recentCount} orders`}
+                  empty="Nothing in the recent window yet."
+                />
+              </Section>
             </div>
 
-            <div>
-              <h3 className="mb-1 flex items-center gap-2 text-sm font-semibold text-ink-700">
-                Most-ordered terms in handwritten orders <Badge tone="amber">approximate</Badge>
-              </h3>
-              <p className="mb-2 text-xs text-ink-400">
-                Mined from {analytics.freeformOrders.toLocaleString()} handwritten order lists — a
-                rough demand signal for your historical orders.
-              </p>
-              <div className="flex flex-wrap gap-1.5">
-                {analytics.topFreeformTerms.map((t) => (
-                  <span
-                    key={t.term}
-                    className="inline-flex items-center gap-1 rounded-full bg-ink-100 px-2.5 py-1 text-xs text-ink-700"
-                  >
-                    {t.term}
-                    <span className="font-mono tabular text-ink-400">{t.count}</span>
-                  </span>
-                ))}
-              </div>
-            </div>
+            <Section
+              icon={<TrendingUp size={15} className="text-emerald-600" />}
+              title="Trending up"
+              badge={<Badge tone="green">gaining momentum</Badge>}
+            >
+              {analytics.freeformTrending.length === 0 ? (
+                <p className="text-sm text-ink-400">
+                  Not enough recent history yet — trends appear as new orders come in.
+                </p>
+              ) : (
+                <ProductList
+                  items={analytics.freeformTrending}
+                  value={(p) => p.recentUnits}
+                  sub={(p) => `${p.recentCount} recent / ${p.count} total`}
+                  empty=""
+                />
+              )}
+            </Section>
+
+            {analytics.structuredTopByUnits.length > 0 && (
+              <Section title="Catalog products (itemized orders)">
+                <ProductList
+                  items={analytics.structuredTopByUnits.map((r) => ({
+                    name: r.name,
+                    units: r.units,
+                    count: r.orders,
+                    recentUnits: 0,
+                    recentCount: 0,
+                  }))}
+                  value={(p) => p.units}
+                  sub={(p) => `${p.count} orders`}
+                  empty=""
+                />
+              </Section>
+            )}
           </div>
         )}
       </Card>
@@ -224,10 +216,59 @@ export function Reports() {
   );
 }
 
+function Section({
+  icon,
+  title,
+  badge,
+  children,
+}: {
+  icon?: React.ReactNode;
+  title: string;
+  badge?: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  return (
+    <div>
+      <h3 className="mb-2 flex items-center gap-2 text-sm font-semibold text-ink-700">
+        {icon} {title} {badge}
+      </h3>
+      {children}
+    </div>
+  );
+}
+
+function ProductList({
+  items,
+  value,
+  sub,
+  empty,
+}: {
+  items: FreeformProduct[];
+  value: (p: FreeformProduct) => number;
+  sub: (p: FreeformProduct) => string;
+  empty: string;
+}) {
+  if (items.length === 0) return <p className="text-sm text-ink-400">{empty}</p>;
+  return (
+    <ol className="space-y-0.5">
+      {items.map((p, i) => (
+        <li key={p.name} className="flex items-center gap-3 py-1 text-sm">
+          <span className="w-5 font-mono text-xs text-ink-400">{i + 1}</span>
+          <span className="min-w-0 flex-1 truncate capitalize text-ink-700">{p.name}</span>
+          <span className="text-xs text-ink-400">{sub(p)}</span>
+          <span className="w-12 text-right font-mono tabular font-medium text-ink-800">
+            {value(p).toLocaleString()}
+          </span>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
 function Row({ label, value, tone }: { label: string; value: number; tone?: string }) {
   return (
     <div className="flex items-center justify-between border-b border-ink-50 py-1.5 text-sm last:border-0">
-      <span className="truncate pr-2 text-ink-600">{label}</span>
+      <span className="min-w-0 truncate pr-2 text-ink-600">{label}</span>
       <span className={`font-mono tabular font-medium ${tone ?? "text-ink-800"}`}>
         {value.toLocaleString()}
       </span>
@@ -235,14 +276,13 @@ function Row({ label, value, tone }: { label: string; value: number; tone?: stri
   );
 }
 
-function RankList({ items }: { items: { label: string; value: number; sub?: string }[] }) {
+function RankList({ items }: { items: { label: string; value: number }[] }) {
   return (
     <ol className="space-y-0.5">
       {items.map((it, i) => (
         <li key={i} className="flex items-center gap-3 py-1 text-sm">
           <span className="w-5 font-mono text-xs text-ink-400">{i + 1}</span>
           <span className="min-w-0 flex-1 truncate text-ink-700">{it.label}</span>
-          {it.sub && <span className="text-xs text-ink-400">{it.sub}</span>}
           <span className="font-mono tabular text-ink-500">{it.value.toLocaleString()}</span>
         </li>
       ))}

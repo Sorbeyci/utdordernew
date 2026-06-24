@@ -9,6 +9,7 @@ import {
   type QueryDocumentSnapshot,
 } from "firebase/firestore";
 import { ordersCol } from "./firestore";
+import { toDate } from "@/utils/format";
 import type { Order } from "@/types";
 
 export interface ProductRow {
@@ -17,25 +18,52 @@ export interface ProductRow {
   orders: number;
 }
 
+/** A product derived from one handwritten order line (line = one product). */
+export interface FreeformProduct {
+  name: string;
+  units: number; // summed trailing quantities ("black mamba 5" -> 5)
+  count: number; // how many order-lines mention it
+  recentUnits: number; // within the recent window
+  recentCount: number;
+}
+
 export interface ProductAnalytics {
   scanned: number;
   structuredOrders: number;
   freeformOrders: number;
-  totalUnits: number;
-  distinctProducts: number;
-  topByUnits: ProductRow[];
-  topByOrders: ProductRow[];
-  /** Approximate historical demand mined from handwritten (freeform) orders. */
-  topFreeformTerms: { term: string; count: number }[];
+  recentWindowDays: number;
+  // Structured (catalog-linked) orders
+  structuredUnits: number;
+  structuredTopByUnits: ProductRow[];
+  structuredTopByOrders: ProductRow[];
+  // Handwritten orders, one product per line
+  distinctFreeformProducts: number;
+  freeformAllTime: FreeformProduct[]; // best sellers, all time
+  freeformRecent: FreeformProduct[]; // selling now (recent window)
+  freeformTrending: FreeformProduct[]; // gaining momentum
 }
 
-// Generic words to ignore when mining handwritten lists for product signal.
-const STOP = new Set([
-  "the", "and", "for", "with", "each", "get", "got", "need", "take", "from",
-  "good", "date", "also", "new", "old", "off", "out", "all", "per", "box",
-  "pack", "case", "count", "single", "singles", "pcs", "total", "qty", "items",
-  "item", "quantity", "order", "please", "thanks", "thank", "you", "have",
-]);
+const RECENT_DAYS = 30;
+const FOOTER = /^\s*total\s+(quantity|items)\s*:/i;
+// Trailing quantity: " 5", " x5", " x 5" — but NOT product numbers like "6mg" or "15k".
+const TRAILING_QTY = /\s+x?\s*(\d{1,4})\s*$/i;
+
+/** Turn one handwritten line into { name, qty }, or null if it isn't a product. */
+function parseLine(raw: string): { name: string; qty: number } | null {
+  let line = raw.trim();
+  if (!line || FOOTER.test(line)) return null;
+  let qty = 1;
+  const m = line.match(TRAILING_QTY);
+  if (m) {
+    qty = parseInt(m[1], 10) || 1;
+    line = line.slice(0, m.index).trim();
+  }
+  // Drop a trailing colon from header-style lines ("backwoods pack:" -> "backwoods pack")
+  line = line.replace(/:+\s*$/, "").trim();
+  const name = line.replace(/\s+/g, " ").toLowerCase();
+  if (name.length < 2) return null;
+  return { name, qty };
+}
 
 export async function getProductAnalytics(
   onProgress?: (scanned: number) => void
@@ -43,12 +71,16 @@ export async function getProductAnalytics(
   const PAGE = 500;
   let cursor: QueryDocumentSnapshot<Order> | null = null;
 
-  const byName = new Map<string, { units: number; orders: number }>();
-  const terms = new Map<string, number>();
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - RECENT_DAYS);
+  const cutoffMs = cutoff.getTime();
+
+  const structured = new Map<string, { units: number; orders: number }>();
+  const free = new Map<string, FreeformProduct>();
   let scanned = 0,
     structuredOrders = 0,
     freeformOrders = 0,
-    totalUnits = 0;
+    structuredUnits = 0;
 
   for (;;) {
     const constraints: QueryConstraint[] = [
@@ -61,6 +93,8 @@ export async function getProductAnalytics(
     for (const d of snap.docs) {
       const o = d.data();
       scanned++;
+      const createdMs = toDate(o.createdAt)?.getTime() ?? 0;
+      const isRecent = createdMs >= cutoffMs;
       const items = o.items ?? [];
 
       if (items.length > 0) {
@@ -68,11 +102,11 @@ export async function getProductAnalytics(
         for (const it of items) {
           const name = (it.productName || "").trim();
           if (!name) continue;
-          const cur = byName.get(name) ?? { units: 0, orders: 0 };
+          const cur = structured.get(name) ?? { units: 0, orders: 0 };
           cur.units += it.quantity || 0;
           cur.orders += 1;
-          byName.set(name, cur);
-          totalUnits += it.quantity || 0;
+          structured.set(name, cur);
+          structuredUnits += it.quantity || 0;
         }
       } else {
         freeformOrders++;
@@ -80,14 +114,19 @@ export async function getProductAnalytics(
           o.customLines && o.customLines.length > 0
             ? o.customLines.join("\n")
             : o.legacyOutputText || "";
-        for (let line of text.split("\n")) {
-          line = line.toLowerCase().replace(/total\s+(quantity|items).*/g, "");
-          for (const w of line.split(/[^a-z0-9]+/)) {
-            if (w.length < 3) continue;
-            if (/^\d+$/.test(w)) continue; // pure numbers (quantities)
-            if (STOP.has(w)) continue;
-            terms.set(w, (terms.get(w) || 0) + 1);
+        for (const rawLine of text.split("\n")) {
+          const parsed = parseLine(rawLine);
+          if (!parsed) continue;
+          const cur =
+            free.get(parsed.name) ??
+            { name: parsed.name, units: 0, count: 0, recentUnits: 0, recentCount: 0 };
+          cur.units += parsed.qty;
+          cur.count += 1;
+          if (isRecent) {
+            cur.recentUnits += parsed.qty;
+            cur.recentCount += 1;
           }
+          free.set(parsed.name, cur);
         }
       }
     }
@@ -97,23 +136,36 @@ export async function getProductAnalytics(
     cursor = snap.docs[snap.docs.length - 1];
   }
 
-  const rows: ProductRow[] = [...byName.entries()].map(([name, v]) => ({
+  const structuredRows: ProductRow[] = [...structured.entries()].map(([name, v]) => ({
     name,
     units: v.units,
     orders: v.orders,
   }));
+  const freeRows = [...free.values()];
+
+  // Trending: products doing more recently than their older baseline.
+  const trending = freeRows
+    .filter((p) => p.count >= 3 && p.recentCount > 0)
+    .map((p) => ({ p, score: p.recentCount * 2 - (p.count - p.recentCount) }))
+    .filter((x) => x.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 15)
+    .map((x) => x.p);
 
   return {
     scanned,
     structuredOrders,
     freeformOrders,
-    totalUnits,
-    distinctProducts: rows.length,
-    topByUnits: [...rows].sort((a, b) => b.units - a.units).slice(0, 20),
-    topByOrders: [...rows].sort((a, b) => b.orders - a.orders).slice(0, 20),
-    topFreeformTerms: [...terms.entries()]
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 30)
-      .map(([term, count]) => ({ term, count })),
+    recentWindowDays: RECENT_DAYS,
+    structuredUnits,
+    structuredTopByUnits: [...structuredRows].sort((a, b) => b.units - a.units).slice(0, 15),
+    structuredTopByOrders: [...structuredRows].sort((a, b) => b.orders - a.orders).slice(0, 15),
+    distinctFreeformProducts: freeRows.length,
+    freeformAllTime: [...freeRows].sort((a, b) => b.units - a.units).slice(0, 30),
+    freeformRecent: freeRows
+      .filter((p) => p.recentCount > 0)
+      .sort((a, b) => b.recentUnits - a.recentUnits)
+      .slice(0, 20),
+    freeformTrending: trending,
   };
 }
